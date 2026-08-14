@@ -1,5 +1,5 @@
 Ağ ve Sistem Güvenliği Lab Projesi
-Bu proje, staj sürecim kapsamında sanal ortamda kurduğum, gerçekçi ölçekte bir kurumsal ağın güvenliğini uçtan uca deneyimlemek amacıyla hazırlanmıştır. Sıfırdan bir ağ altyapısı kurup, üzerine kimlik yönetimi, loglama, ve hem uç nokta hem ağ seviyesinde saldırı tespiti ekledim; ayrıca gerçek saldırı senaryolarını (brute-force, SQL injection) deneyerek bu savunma katmanlarının nasıl çalıştığını kanıtladım.
+Bu proje, staj sürecim kapsamında sanal ortamda kurduğum, gerçekçi ölçekte bir kurumsal ağın güvenliğini uçtan uca deneyimlemek amacıyla hazırlanmıştır. Sıfırdan bir ağ altyapısı kurup, üzerine kimlik yönetimi, loglama, ve hem uç nokta hem ağ seviyesinde saldırı tespiti ekledim; gerçek saldırı senaryolarını (brute-force, SQL injection) deneyerek bu savunma katmanlarının nasıl çalıştığını kanıtladım; son olarak otomatik zafiyet taraması ve sistem sertleştirme (hardening) çalışmasıyla projeyi "saldırı-tespit" döngüsünün ötesine, "bul ve düzelt" döngüsüne taşıdım.
 Kullanılan Araçlar
 VMware Workstation Pro — sanallaştırma platformu
 pfSense — firewall / router
@@ -9,7 +9,8 @@ Kali Linux — saldırgan makine
 OWASP Broken Web Applications (DVWA) — hedef zafiyetli web uygulaması
 Sysmon — uç nokta (endpoint) loglama
 Suricata — ağ seviyesinde saldırı tespit sistemi (IDS)
-Tenable Nessus — zafiyet taraması ve güvenlik analizi yazılımı
+Tenable Nessus — zafiyet taraması ve güvenlik analizi
+ufw / fail2ban — Linux güvenlik duvarı ve otomatik saldırı engelleme
 Ağ Mimarisi
 Tüm sanal makineler, pfSense'in LAN arayüzüne bağlı `10.10.10.0/24` adresli izole bir sanal ağda (VMware host-only network) çalışıyor. pfSense, bu iç ağ ile dış dünya arasındaki tek geçiş noktası; NAT ile internete çıkışı sağlıyor, DHCP ile iç ağdaki makinelere IP dağıtıyor.
 ```
@@ -21,7 +22,7 @@ Tüm sanal makineler, pfSense'in LAN arayüzüne bağlı `10.10.10.0/24` adresli
    │
    ├── DC01 (Domain Controller) — 10.10.10.10
    ├── Windows 11 (domain istemcisi)
-   ├── Ubuntu
+   ├── Ubuntu — 10.10.10.100
    ├── Kali Linux (saldırgan)
    └── OWASP BWA / DVWA — 10.10.10.104
 ```
@@ -47,55 +48,35 @@ OWASP Broken Web Applications üzerindeki DVWA hedef alınarak, kullanıcı gird
 6. Ağ Seviyesinde Saldırı Tespiti (Suricata IDS)
 pfSense üzerine kurulan Suricata IDS, SQL Injection saldırı trafiğini ağ seviyesinde (hedefe ulaşmadan) tespit edip uyarı üretti.
 ![Suricata Alerts](screenshots/02-suricata-alerts.png)
----
-
-## 10. Zafiyet Taraması ve Analizi (Tenable Nessus)
-
-Laboratuvar ortamında yer alan hedef makineye (`10.10.10.104` - OWASP BWA) **Tenable Nessus** güvenlik yazılımı üzerinden **Basic Network Scan** politikası kullanılarak zafiyet taraması (Vulnerability Assessment) gerçekleştirilmiştir.
-
+7. Zafiyet Taraması ve Analizi (Tenable Nessus)
+Laboratuvar ortamında yer alan hedef makineye (`10.10.10.104` — OWASP BWA) Tenable Nessus üzerinden Basic Network Scan politikasıyla bir zafiyet taraması (vulnerability assessment) gerçekleştirildi.
 ![Nessus Tarama Özeti](screenshots/10-nessus-tarama-ozeti.png)
-
-### Tarama Genel Bilgileri ve Zafiyet Dağılımı
-* **Hedef Sistem:** `10.10.10.104` (OWASP BWA)
-* **Tarama Tipi:** Basic Network Scan
-* **Tamamlanma Süresi:** 17 dakika
-* **Tespit Edilen Zafiyet Dağılımı:**
-  * 🔴 **Critical (Kritik):** 3
-  * 🟠 **High (Yüksek):** 12
-  * 🟡 **Medium (Orta):** 6
-  * 🔵 **Info (Bilgilendirme):** 78
-
----
-
-### Tespit Edilen Önemli Zafiyetler ve Analizleri
-
-#### A. Desteği Sonlandırılmış İşletim Sistemi (Critical - CVSS 10.0)
-* **Zafiyet Adı:** Canonical Ubuntu Linux SEoL (10.04.x)
-* **Risk Derecesi:** Critical (CVSS v3.0: 10.0)
-* **Plugin ID:** 201475
-* **Açıklama:** Hedef sunucuda güvenlik desteği 30 Nisan 2015 tarihinde bitmiş (SEoL) Ubuntu 10.04 kullanıldığı saptanmıştır.
-* **Etki:** 11 yıldır güvenlik yaması almayan sistem, çekirdek (Kernel) seviyesinde bilinen tüm zafiyetlere açıktır. Saldırganların uzaktan kod çalıştırma (RCE) veya yetki yükseltme (Privilege Escalation) ile `root` yetkisi almasını kolaylaştırır.
-* **Çözüm:** Sunucu altyapısı aktif destek alan güncel bir Ubuntu LTS sürümüne (örneğin Ubuntu 22.04 LTS veya 24.04 LTS) yükseltilmelidir.
-
+Tarama özeti:
+Hedef sistem: `10.10.10.104` (OWASP BWA)
+Tamamlanma süresi: 17 dakika
+Bulgu dağılımı: 🔴 Critical: 3 · 🟠 High: 12 · 🟡 Medium: 6 · 🔵 Info: 78
+Öne çıkan bulgular:
+A. Desteği sonlandırılmış işletim sistemi (Critical, CVSS 10.0) — Canonical Ubuntu Linux SEoL (10.04.x), Plugin ID 201475. Hedef sistemin, güvenlik desteği 2015'te sona ermiş bir Ubuntu 10.04 üzerinde çalıştığı tespit edildi. 11 yıldır yama almayan bir çekirdek, uzaktan kod çalıştırma (RCE) ve yetki yükseltme saldırılarına açık kapı bırakıyor. Çözüm: güncel bir LTS sürümüne yükseltme.
 ![Ubuntu SEoL Zafiyet Detayı](screenshots/11-nessus-ubuntu-seol.png)
-
-#### B. Güvensiz Şifreleme Protokolleri Desteği (Critical - CVSS 9.8)
-* **Zafiyet Adı:** SSL Version 2 and 3 Protocol Detection
-* **Risk Derecesi:** Critical (CVSS v3.0: 9.8)
-* **Plugin ID:** 20007
-* **Açıklama:** Web servisinin ciddi kriptografik zayıflıklar barındıran SSL 2.0 ve SSL 3.0 protokolleri üzerinden bağlantı kabul ettiği tespit edilmiştir.
-* **Etki:** Saldırganların araya girme (MitM) saldırıları yapmasına, trafiğin şifresini çözmesine veya bağlantı seviyesini düşürmesine (POODLE vb. Downgrade) imkan tanır.
-* **Çözüm:** Sunucu/servis konfigürasyonundan SSL 2.0 ve SSL 3.0 tamamen devre dışı bırakılmalı; yalnızca TLS 1.2 veya TLS 1.3 aktif edilmelidir.
-
+B. Güvensiz şifreleme protokolleri (Critical, CVSS 9.8) — SSL Version 2 and 3 Protocol Detection, Plugin ID 20007. Servisin, ciddi kriptografik zayıflıklar barındıran SSL 2.0/3.0 üzerinden bağlantı kabul ettiği görüldü — bu, araya girme (MitM) ve POODLE gibi düşürme (downgrade) saldırılarına zemin hazırlıyor. Çözüm: SSL 2.0/3.0'ı tamamen kapatıp yalnızca TLS 1.2/1.3'e izin vermek.
 ![SSL Zafiyet Detayı](screenshots/12-nessus-ssl-zafiyeti.png)
-
-#### C. Desteği Sonlandırılmış Python Sürümü (High)
-* **Açıklama:** Port 80 üzerinde çalışan uygulamanın, resmi desteği 2013 yılında bitmiş Python 2.6.5 kullandığı saptanmıştır.
-* **Çözüm:** Uygulama altyapısının aktif destek alan güncel Python 3.x sürümüne yükseltilmesi gerekmektedir.
-
-#### D. ICMP Timestamp Bilgi İfşası (Low)
-* **Açıklama:** Hedef sistemin ICMP zaman damgası isteklerine yanıt vererek sistem saatini dışarıya sızdırdığı görülmüştür.
-* **Çözüm:** Güvenlik duvarı (Firewall) üzerinden ICMP Type 13 ve Type 14 paketleri engellenmiştir.
-
+C. Desteği sonlandırılmış Python sürümü (High) — Port 80'de çalışan uygulamanın, resmi desteği 2013'te bitmiş Python 2.6.5 kullandığı tespit edildi.
+D. ICMP Timestamp bilgi ifşası (Low) — Sistem, ICMP zaman damgası isteklerine cevap vererek sistem saatini dışarıya sızdırıyordu.
+8. Linux Sertleştirme (Hardening) ve Önce/Sonra Karşılaştırması
+Zafiyet taramasının Ubuntu (`10.10.10.100`) için de anlamlı sonuçlar verdiğini görünce, bu makineyi bilinçli olarak sertleştirip ölçülebilir bir iyileştirme ortaya koymak istedim. Önce mevcut haliyle bir tarama yapıp bulguları kaydettim, ardından aşağıdaki değişiklikleri uyguladım:
+Gereksiz servis kaldırma: Kullanılmayan ama tüm ağa açık şekilde dinleyen bir DNS sunucusu (`bind9`) tespit edilip kaldırıldı — "en az işlevsellik" prensibi gereği, ihtiyaç duyulmayan hiçbir servis açık bırakılmamalı.
+Bilgi sızıntısını kapatma: ICMP timestamp isteklerine verilen cevaplar `iptables` ile engellendi.
+SSH sertleştirme: Parola ile giriş tamamen kapatılıp yalnızca SSH anahtarıyla kimlik doğrulamaya geçildi, `root` kullanıcısının doğrudan girişi engellendi — bu, brute-force saldırılarını anlamsız hale getirir.
+Güvenlik duvarı: `ufw` etkinleştirilip yalnızca SSH (port 22) açık bırakıldı, geri kalan tüm gelen bağlantılar varsayılan olarak reddedildi.
+Saldırı engelleme: `fail2ban` kurulup SSH servisini izlemesi ve tekrarlı başarısız denemelerde ilgili IP'yi otomatik olarak geçici süreliğine engellemesi sağlandı.
+Değişikliklerin ardından aynı hedefe tarama tekrarlandı:
+	Önce	Sonra
+Critical / High	0	0
+Medium	1 (DNS Cache Snooping)	0
+Low	1 (ICMP Timestamp)	0
+Info	birkaç	birkaç (yalnızca zararsız bilgilendirme)
+![Sertleştirme Öncesi Tarama](screenshots/13-ubuntu-nessus-once.png)
+![Sertleştirme Sonrası Tarama](screenshots/14-ubuntu-nessus-sonra.png)
+Bu karşılaştırma, projenin yalnızca "açık bulma" değil, "açığı kapatıp bunu kanıtlama" aşamasına da ulaştığını gösteriyor.
 Öğrenilenler
-Bu proje sürecinde ağ topolojisi kurulumu, Active Directory ile kimlik/erişim yönetimi, Windows ve Linux platformlarında loglama, uç nokta ve ağ seviyesinde saldırı tespiti, ve temel web uygulama güvenlik açıkları konularında uygulamalı deneyim kazandım. Ayrıca gerçek bir laboratuvar ortamında karşılaşılan DNS, Kerberos ve ağ görünürlüğü (promiscuous mode) gibi teknik sorunları teşhis edip çözme sürecinden de önemli bir troubleshooting deneyimi edindim.
+Bu proje sürecinde ağ topolojisi kurulumu, Active Directory ile kimlik/erişim yönetimi, Windows ve Linux platformlarında loglama, uç nokta ve ağ seviyesinde saldırı tespiti, temel web uygulama güvenlik açıkları, otomatik zafiyet taraması ve sistem sertleştirme konularında uygulamalı deneyim kazandım. Ayrıca gerçek bir laboratuvar ortamında karşılaşılan DNS, Kerberos, ağ görünürlüğü (promiscuous mode) ve donanım seviyesi paket işleme gibi teknik sorunları teşhis edip çözme sürecinden önemli bir troubleshooting deneyimi edindim. Son olarak, bir güvenlik bulgusunu yalnızca tespit etmekle kalmayıp, önce/sonra karşılaştırmasıyla kanıtlanabilir şekilde gidermenin nasıl bir disiplin gerektirdiğini deneyimledim.
