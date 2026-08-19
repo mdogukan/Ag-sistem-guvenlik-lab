@@ -11,6 +11,9 @@ Sysmon — uç nokta (endpoint) loglama
 Suricata — ağ seviyesinde saldırı tespit sistemi (IDS)
 Tenable Nessus — zafiyet taraması ve güvenlik analizi
 ufw / fail2ban — Linux güvenlik duvarı ve otomatik saldırı engelleme
+BloodHound CE — Active Directory ilişki/izin haritalama ve saldırı yolu analizi
+Impacket — Kerberos protokolüyle etkileşim kuran saldırı araç seti
+hashcat — çevrimdışı şifre/hash kırma
 Ağ Mimarisi
 Tüm sanal makineler, pfSense'in LAN arayüzüne bağlı `10.10.10.0/24` adresli izole bir sanal ağda (VMware host-only network) çalışıyor. pfSense, bu iç ağ ile dış dünya arasındaki tek geçiş noktası; NAT ile internete çıkışı sağlıyor, DHCP ile iç ağdaki makinelere IP dağıtıyor.
 ```
@@ -78,5 +81,21 @@ Info	birkaç	birkaç (yalnızca zararsız bilgilendirme)
 ![Sertleştirme Öncesi Tarama](screenshots/13-ubuntu-nessus-once.png)
 ![Sertleştirme Sonrası Tarama](screenshots/14-ubuntu-nessus-sonra.png)
 Bu karşılaştırma, projenin yalnızca "açık bulma" değil, "açığı kapatıp bunu kanıtlama" aşamasına da ulaştığını gösteriyor.
+9. Active Directory Haritalama ve Saldırı Yolu Analizi (BloodHound)
+Gerçek AD ortamlarında, sıradan bir kullanıcı hesabı bile birbirine zincirlenmiş izinler yüzünden Domain Admin yetkisine kadar ulaşabilir. Bu "gizli yolları" tespit etmek için BloodHound CE kuruldu; `bloodhound-python` collector'ı ile domain'den veri toplandı (7 kullanıcı, 52 grup, 3 bilgisayar, 3 GPO) ve BloodHound arayüzüne yüklendi.
+Hem sıradan bir kullanıcıdan hem de domaine katılmış bir istemciden Domain Admins grubuna dolaylı bir izin zinciri (attack path) olup olmadığı sorgulandı — her iki denemede de yol bulunamadı, Domain Admins grubunun tek üyesinin `administrator` olduğu doğrulandı. Bu, ortamın izin yapısının temiz olduğunu, kazara oluşmuş bir yetki yükseltme yolunun bulunmadığını gösteriyor.
+![BloodHound - Yol Bulunamadı](screenshots/15-bloodhound-path-not-found.png)
+10. Kerberoasting Saldırısı ve Çevrimdışı Şifre Kırma
+Kerberoasting, AD'de SPN (Service Principal Name) atanmış servis hesaplarını hedef alan bir saldırı tekniğidir: herhangi bir kimlik doğrulanmış kullanıcı, bu hesaplar için şifrelenmiş bir Kerberos servis bileti isteyebilir ve bu bileti hedefe hiç bağlanmadan, çevrimdışı olarak kırmaya çalışabilir.
+Bunu test etmek için DC01 üzerinde bilinçli olarak zayıf şifreli bir servis hesabı (`sqlservice`) oluşturulup bir SPN atandı.
+![SPN Ataması Doğrulama](screenshots/16-spn-atama-dogrulama.png)
+Kali üzerinden, sıradan bir domain kullanıcısı (`harunkarakus`) kimliğiyle — herhangi bir yönetici yetkisi olmadan — Impacket'in `GetUserSPNs` aracıyla bu hesabın Kerberos bileti istendi ve şifreli hash yakalandı.
+![Kerberoast Hash Yakalama](screenshots/17-kerberoast-hash-yakalama.png)
+Yakalanan hash, `hashcat` ile çevrimdışı olarak kırıldı ve servis hesabının gerçek şifresi (`M.12345`) elde edildi.
+![Hashcat - Kırma Başarılı](screenshots/18-hashcat-kirma-basarili.png)
+Şifrenin gerçekçi bir saldırı senaryosuna ne kadar dayanıklı olduğunu test etmek için, aynı hash 14+ milyon sızmış şifre içeren `rockyou.txt` listesiyle de denendi — şifre bu listede bulunamadı (`Exhausted`), yani basit bir sözlük saldırısına karşı dayanıklı çıktı.
+![Hashcat - rockyou Denemesi](screenshots/19-hashcat-rockyou-exhausted.png)
+Son olarak bu saldırı, DC01'in Event Viewer'ında Event ID 4769 (Kerberos servis bileti talebi) altında, Ticket Encryption Type: 0x17 (RC4) imzasıyla tespit edildi — gerçek SOC ortamlarında Kerberoasting'i ayırt etmek için kullanılan standart bir gösterge, çünkü saldırı araçları genelde kırılması daha kolay olan eski RC4 şifrelemesini talep eder.
+![Event Viewer - 4769 Detay](screenshots/20-event-4769-detay.png)
 Öğrenilenler
-Bu proje sürecinde ağ topolojisi kurulumu, Active Directory ile kimlik/erişim yönetimi, Windows ve Linux platformlarında loglama, uç nokta ve ağ seviyesinde saldırı tespiti, temel web uygulama güvenlik açıkları, otomatik zafiyet taraması ve sistem sertleştirme konularında uygulamalı deneyim kazandım. Ayrıca gerçek bir laboratuvar ortamında karşılaşılan DNS, Kerberos, ağ görünürlüğü (promiscuous mode) ve donanım seviyesi paket işleme gibi teknik sorunları teşhis edip çözme sürecinden önemli bir troubleshooting deneyimi edindim. Son olarak, bir güvenlik bulgusunu yalnızca tespit etmekle kalmayıp, önce/sonra karşılaştırmasıyla kanıtlanabilir şekilde gidermenin nasıl bir disiplin gerektirdiğini deneyimledim.
+Bu proje sürecinde ağ topolojisi kurulumu, Active Directory ile kimlik/erişim yönetimi, Windows ve Linux platformlarında loglama, uç nokta ve ağ seviyesinde saldırı tespiti, temel web uygulama güvenlik açıkları, otomatik zafiyet taraması, sistem sertleştirme ve Active Directory'ye özgü saldırı tekniklerinde (attack path analizi, Kerberoasting) uygulamalı deneyim kazandım. Ayrıca gerçek bir laboratuvar ortamında karşılaşılan DNS, Kerberos saat senkronizasyonu, ağ görünürlüğü (promiscuous mode) ve donanım seviyesi paket işleme gibi teknik sorunları teşhis edip çözme sürecinden önemli bir troubleshooting deneyimi edindim. Son olarak, bir güvenlik bulgusunu yalnızca tespit etmekle kalmayıp, önce/sonra karşılaştırmasıyla kanıtlanabilir şekilde gidermenin ve bir saldırının gerçek dünyadaki tespit imzalarını (event ID, encryption type gibi) anlamanın nasıl bir disiplin gerektirdiğini deneyimledim.
